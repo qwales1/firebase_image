@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -46,12 +45,42 @@ class FirebaseImage extends ImageProvider<FirebaseImage> {
   }) : _imageObject = FirebaseImageObject(
           bucket: _getBucket(location),
           remotePath: _getImagePath(location),
-          reference: _getImageRef(location, firebaseApp),
+          reference: _getImageRef(
+            location,
+            firebaseApp,
+          ),
         );
+
+  @override
+  int get hashCode => Object.hash(
+        _imageObject.uri,
+        scale,
+      );
+
+  @override
+  bool operator ==(dynamic other) {
+    if (other.runtimeType != runtimeType) return false;
+    final FirebaseImage typedOther = other;
+    return _imageObject.uri == typedOther._imageObject.uri &&
+        scale == typedOther.scale;
+  }
 
   /// Returns the image as bytes
   Future<Uint8List> getBytes() {
     return _fetchImage();
+  }
+
+  @override
+  ImageStreamCompleter loadBuffer(FirebaseImage key, decode) {
+    return MultiFrameImageStreamCompleter(
+      codec: key._fetchImageCodec(),
+      scale: key.scale,
+    );
+  }
+
+  @override
+  Future<FirebaseImage> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<FirebaseImage>(this);
   }
 
   /// Pre-caches an image
@@ -62,21 +91,8 @@ class FirebaseImage extends ImageProvider<FirebaseImage> {
     await _fetchImage();
   }
 
-  static String _getBucket(String location) {
-    final uri = Uri.parse(location);
-    return '${uri.scheme}://${uri.authority}';
-  }
-
-  static String _getImagePath(String location) {
-    final uri = Uri.parse(location);
-    return uri.path;
-  }
-
-  static Reference _getImageRef(String location, FirebaseApp? firebaseApp) {
-    FirebaseStorage storage = FirebaseStorage.instanceFor(
-        app: firebaseApp, bucket: _getBucket(location));
-    return storage.ref().child(_getImagePath(location));
-  }
+  @override
+  String toString() => '$runtimeType("${_imageObject.uri}", scale: $scale)';
 
   Future<Uint8List> _fetchImage() async {
     Uint8List? bytes;
@@ -98,41 +114,36 @@ class FirebaseImage extends ImageProvider<FirebaseImage> {
             _imageObject, maxSizeBytes);
       }
     } else {
-      bytes = await cacheManager.remoteFileBytes(_imageObject, maxSizeBytes);
+      bytes = await cacheManager.remoteFileBytes(
+        _imageObject,
+        maxSizeBytes,
+      );
     }
 
     return bytes!;
   }
 
   Future<Codec> _fetchImageCodec() async {
-    return await PaintingBinding.instance!
-        .instantiateImageCodec(await _fetchImage());
-  }
-
-  @override
-  Future<FirebaseImage> obtainKey(ImageConfiguration configuration) {
-    return SynchronousFuture<FirebaseImage>(this);
-  }
-
-  @override
-  ImageStreamCompleter load(FirebaseImage key, DecoderCallback decode) {
-    return MultiFrameImageStreamCompleter(
-      codec: key._fetchImageCodec(),
-      scale: key.scale,
+    return await PaintingBinding.instance.instantiateImageCodecWithSize(
+      await ImmutableBuffer.fromUint8List(
+        await _fetchImage(),
+      ),
     );
   }
 
-  @override
-  bool operator ==(dynamic other) {
-    if (other.runtimeType != runtimeType) return false;
-    final FirebaseImage typedOther = other;
-    return _imageObject.uri == typedOther._imageObject.uri &&
-        scale == typedOther.scale;
+  static String _getBucket(String location) {
+    final uri = Uri.parse(location);
+    return '${uri.scheme}://${uri.authority}';
   }
 
-  @override
-  int get hashCode => hashValues(_imageObject.uri, scale);
+  static String _getImagePath(String location) {
+    final uri = Uri.parse(location);
+    return uri.path;
+  }
 
-  @override
-  String toString() => '$runtimeType("${_imageObject.uri}", scale: $scale)';
+  static Reference _getImageRef(String location, FirebaseApp? firebaseApp) {
+    FirebaseStorage storage = FirebaseStorage.instanceFor(
+        app: firebaseApp, bucket: _getBucket(location));
+    return storage.ref().child(_getImagePath(location));
+  }
 }
